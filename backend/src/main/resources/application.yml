@@ -39,3 +39,7 @@ app:
   cors:
     allowed-origins:
       - ${CORS_ALLOWED_ORIGIN:http://localhost:5173}
+  security:
+    encryption-key: ${APP_ENCRYPTION_KEY:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+  oauth2:
+    default-redirect-url: ${OAUTH2_REDIRECT_URL:http://localhost:5173}

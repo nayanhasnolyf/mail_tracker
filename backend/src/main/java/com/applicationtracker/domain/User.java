@@ -44,6 +44,13 @@ public class User {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    @Column(name = "encrypted_refresh_token", columnDefinition = "TEXT")
+    private String encryptedRefreshToken;
+
+    @Builder.Default
+    @Column(name = "reauth_required", nullable = false)
+    private boolean reauthRequired = false;
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
