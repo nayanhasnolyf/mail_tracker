@@ -43,3 +43,7 @@ app:
     encryption-key: ${APP_ENCRYPTION_KEY:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
   oauth2:
     default-redirect-url: ${OAUTH2_REDIRECT_URL:http://localhost:5173}
+  gmail:
+    sync-query: ${GMAIL_SYNC_QUERY:subject:(application OR interview OR assessment OR regret OR offer)}
+    sync-days: ${GMAIL_SYNC_DAYS:90}
+    sync-rate-ms: ${GMAIL_SYNC_RATE_MS:900000}

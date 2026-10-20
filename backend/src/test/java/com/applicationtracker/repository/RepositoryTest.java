@@ -2,6 +2,7 @@ package com.applicationtracker.repository;
 
 import com.applicationtracker.domain.Application;
 import com.applicationtracker.domain.ApplicationStatus;
+import com.applicationtracker.domain.ProcessedEmail;
 import com.applicationtracker.domain.StatusHistory;
 import com.applicationtracker.domain.SyncState;
 import com.applicationtracker.domain.User;
@@ -37,6 +38,9 @@ class RepositoryTest {
 
     @Autowired
     private SyncStateRepository syncStateRepository;
+
+    @Autowired
+    private ProcessedEmailRepository processedEmailRepository;
 
     private User testUser;
 
@@ -175,5 +179,41 @@ class RepositoryTest {
         assertThat(found).isPresent();
         assertThat(found.get().getLastHistoryId()).isEqualTo("history-998877");
         assertThat(found.get().getLastSyncedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("Should save processed email and verify idempotency check")
+    void testSaveAndCheckProcessedEmail() {
+        ProcessedEmail processed = processedEmailRepository.saveAndFlush(ProcessedEmail.builder()
+                .user(testUser)
+                .messageId("msg-gmail-001")
+                .subject("Application update")
+                .sender("jobs@amazon.com")
+                .build());
+
+        assertThat(processed.getId()).isNotNull();
+        assertThat(processed.getProcessedAt()).isNotNull();
+
+        assertThat(processedEmailRepository.existsByUserIdAndMessageId(testUser.getId(), "msg-gmail-001")).isTrue();
+        assertThat(processedEmailRepository.existsByUserIdAndMessageId(testUser.getId(), "msg-gmail-nonexistent")).isFalse();
+    }
+
+    @Test
+    @DisplayName("Should reject duplicate processed email message ID for same user")
+    void testDuplicateProcessedEmailThrowsException() {
+        processedEmailRepository.saveAndFlush(ProcessedEmail.builder()
+                .user(testUser)
+                .messageId("msg-dup-100")
+                .subject("First submission")
+                .build());
+
+        ProcessedEmail duplicate = ProcessedEmail.builder()
+                .user(testUser)
+                .messageId("msg-dup-100")
+                .subject("Duplicate submission")
+                .build();
+
+        assertThatThrownBy(() -> processedEmailRepository.saveAndFlush(duplicate))
+                .isInstanceOf(DataIntegrityViolationException.class);
     }
 }
