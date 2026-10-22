@@ -25,4 +25,31 @@ public interface ApplicationRepository extends JpaRepository<Application, UUID> 
     Optional<Application> findFirstByUserIdAndCompanyIgnoreCaseOrderByFirstSeenAtDesc(UUID userId, String company);
 
     Optional<Application> findFirstByUserIdAndCompanyIgnoreCaseAndRoleIgnoreCaseOrderByFirstSeenAtDesc(UUID userId, String company, String role);
+
+    Optional<Application> findByIdAndUserId(UUID id, UUID userId);
+
+    @org.springframework.data.jpa.repository.Query("""
+        SELECT a FROM Application a
+        WHERE a.user.id = :userId
+          AND (:status IS NULL OR a.currentStatus = :status)
+          AND (:companySearch IS NULL OR LOWER(a.company) LIKE LOWER(CONCAT('%', :companySearch, '%')))
+    """)
+    org.springframework.data.domain.Page<Application> findByFilters(
+        @org.springframework.data.repository.query.Param("userId") UUID userId,
+        @org.springframework.data.repository.query.Param("status") ApplicationStatus status,
+        @org.springframework.data.repository.query.Param("companySearch") String companySearch,
+        org.springframework.data.domain.Pageable pageable
+    );
+
+    @org.springframework.data.jpa.repository.Query("""
+        SELECT a FROM Application a
+        WHERE a.user.id = :userId
+          AND a.currentStatus = com.applicationtracker.domain.ApplicationStatus.APPLIED
+          AND a.lastUpdatedAt <= :threshold
+        ORDER BY a.lastUpdatedAt ASC
+    """)
+    List<Application> findPendingFollowups(
+        @org.springframework.data.repository.query.Param("userId") UUID userId,
+        @org.springframework.data.repository.query.Param("threshold") java.time.Instant threshold
+    );
 }

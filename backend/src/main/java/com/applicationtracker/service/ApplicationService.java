@@ -183,4 +183,144 @@ public class ApplicationService {
         // Fall back to matching by company
         return applicationRepository.findFirstByUserIdAndCompanyIgnoreCaseOrderByFirstSeenAtDesc(user.getId(), company);
     }
+
+    @Transactional(readOnly = true)
+    public org.springframework.data.domain.Page<com.applicationtracker.dto.ApplicationResponse> getApplications(
+        User user,
+        ApplicationStatus status,
+        String companySearch,
+        org.springframework.data.domain.Pageable pageable
+    ) {
+        String search = (companySearch != null && !companySearch.isBlank()) ? companySearch.trim() : null;
+        return applicationRepository.findByFilters(user.getId(), status, search, pageable)
+            .map(com.applicationtracker.dto.ApplicationResponse::from);
+    }
+
+    @Transactional(readOnly = true)
+    public com.applicationtracker.dto.ApplicationDetailResponse getApplication(User user, java.util.UUID id) {
+        Application app = applicationRepository.findByIdAndUserId(id, user.getId())
+            .orElseThrow(() -> new com.applicationtracker.exception.ResourceNotFoundException("Application not found with id: " + id));
+        java.util.List<StatusHistory> history = statusHistoryRepository.findByApplicationIdOrderByChangedAtDesc(app.getId());
+        return com.applicationtracker.dto.ApplicationDetailResponse.from(app, history);
+    }
+
+    @Transactional
+    public com.applicationtracker.dto.ApplicationDetailResponse updateApplication(
+        User user,
+        java.util.UUID id,
+        com.applicationtracker.dto.UpdateApplicationRequest request
+    ) {
+        Application app = applicationRepository.findByIdAndUserId(id, user.getId())
+            .orElseThrow(() -> new com.applicationtracker.exception.ResourceNotFoundException("Application not found with id: " + id));
+
+        if (request.notes() != null) {
+            app.setNotes(request.notes());
+        }
+
+        if (request.status() != null) {
+            if (request.status() == ApplicationStatus.UNKNOWN) {
+                throw new IllegalArgumentException("Cannot update application status to UNKNOWN");
+            }
+
+            if (app.getCurrentStatus() != request.status()) {
+                app.setCurrentStatus(request.status());
+                app.setLastUpdatedAt(Instant.now());
+
+                StatusHistory history = StatusHistory.builder()
+                    .application(app)
+                    .status(request.status())
+                    .changedAt(Instant.now())
+                    .sourceEmailId(null)
+                    .build();
+                statusHistoryRepository.save(history);
+            }
+        }
+
+        Application saved = applicationRepository.save(app);
+        java.util.List<StatusHistory> history = statusHistoryRepository.findByApplicationIdOrderByChangedAtDesc(saved.getId());
+        return com.applicationtracker.dto.ApplicationDetailResponse.from(saved, history);
+    }
+
+    @Transactional(readOnly = true)
+    public com.applicationtracker.dto.ApplicationStatsResponse getStats(User user) {
+        java.util.List<Application> apps = applicationRepository.findByUserId(user.getId());
+        long total = apps.size();
+
+        java.util.Map<ApplicationStatus, Long> countsByStatus = new java.util.EnumMap<>(ApplicationStatus.class);
+        for (ApplicationStatus s : ApplicationStatus.values()) {
+            if (s != ApplicationStatus.UNKNOWN) {
+                countsByStatus.put(s, 0L);
+            }
+        }
+
+        long activeCount = 0;
+        long respondedCount = 0;
+
+        java.util.Map<String, WeeklyAccumulator> weeklyMap = new java.util.TreeMap<>();
+        java.time.temporal.WeekFields weekFields = java.time.temporal.WeekFields.ISO;
+
+        for (Application app : apps) {
+            ApplicationStatus status = app.getCurrentStatus();
+            if (status != null && status != ApplicationStatus.UNKNOWN) {
+                countsByStatus.put(status, countsByStatus.getOrDefault(status, 0L) + 1);
+            }
+
+            if (status == ApplicationStatus.APPLIED || status == ApplicationStatus.ASSESSMENT || status == ApplicationStatus.INTERVIEW) {
+                activeCount++;
+            }
+
+            if (status == ApplicationStatus.ASSESSMENT || status == ApplicationStatus.INTERVIEW
+                || status == ApplicationStatus.OFFER || status == ApplicationStatus.REJECTED) {
+                respondedCount++;
+            }
+
+            Instant seenAt = app.getFirstSeenAt() != null ? app.getFirstSeenAt() : Instant.now();
+            java.time.LocalDate localDate = seenAt.atZone(java.time.ZoneOffset.UTC).toLocalDate();
+            java.time.LocalDate monday = localDate.with(weekFields.dayOfWeek(), 1);
+            int year = localDate.get(weekFields.weekBasedYear());
+            int week = localDate.get(weekFields.weekOfWeekBasedYear());
+            String weekKey = String.format("%d-W%02d", year, week);
+
+            weeklyMap.computeIfAbsent(weekKey, k -> new WeeklyAccumulator(k, monday.toString())).increment();
+        }
+
+        double responseRate = total == 0 ? 0.0 : Math.round((respondedCount * 1000.0) / total) / 10.0;
+
+        java.util.List<com.applicationtracker.dto.WeeklyApplicationStatDto> weeklyStats = weeklyMap.values().stream()
+            .map(acc -> new com.applicationtracker.dto.WeeklyApplicationStatDto(acc.weekKey, acc.startDate, acc.count))
+            .toList();
+
+        return new com.applicationtracker.dto.ApplicationStatsResponse(
+            total,
+            activeCount,
+            responseRate,
+            countsByStatus,
+            weeklyStats
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public java.util.List<com.applicationtracker.dto.ApplicationResponse> getPendingFollowups(User user, int days) {
+        int thresholdDays = Math.max(1, days);
+        Instant threshold = Instant.now().minus(thresholdDays, java.time.temporal.ChronoUnit.DAYS);
+        return applicationRepository.findPendingFollowups(user.getId(), threshold).stream()
+            .map(com.applicationtracker.dto.ApplicationResponse::from)
+            .toList();
+    }
+
+    private static class WeeklyAccumulator {
+        final String weekKey;
+        final String startDate;
+        long count;
+
+        WeeklyAccumulator(String weekKey, String startDate) {
+            this.weekKey = weekKey;
+            this.startDate = startDate;
+            this.count = 0;
+        }
+
+        void increment() {
+            this.count++;
+        }
+    }
 }
