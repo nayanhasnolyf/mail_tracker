@@ -48,7 +48,15 @@ public class SecurityConfig {
                 )
             )
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/health", "/error", "/login/**", "/oauth2/**").permitAll()
+                .requestMatchers(
+                    "/api/health",
+                    "/error",
+                    "/login/**",
+                    "/oauth2/**",
+                    "/v3/api-docs/**",
+                    "/swagger-ui/**",
+                    "/swagger-ui.html"
+                ).permitAll()
                 .anyRequest().authenticated()
             )
             .oauth2Login(oauth2 -> {
