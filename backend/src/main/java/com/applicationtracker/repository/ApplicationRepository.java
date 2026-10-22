@@ -19,4 +19,10 @@ public interface ApplicationRepository extends JpaRepository<Application, UUID> 
     Optional<Application> findByUserIdAndSourceEmailId(UUID userId, String sourceEmailId);
 
     boolean existsByUserIdAndSourceEmailId(UUID userId, String sourceEmailId);
+
+    List<Application> findByUserIdAndCompanyIgnoreCase(UUID userId, String company);
+
+    Optional<Application> findFirstByUserIdAndCompanyIgnoreCaseOrderByFirstSeenAtDesc(UUID userId, String company);
+
+    Optional<Application> findFirstByUserIdAndCompanyIgnoreCaseAndRoleIgnoreCaseOrderByFirstSeenAtDesc(UUID userId, String company, String role);
 }
