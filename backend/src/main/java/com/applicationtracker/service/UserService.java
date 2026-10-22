@@ -110,6 +110,36 @@ public class UserService {
         }
     }
 
+    @Transactional(readOnly = true)
+    public User resolveAuthenticatedUser(org.springframework.security.core.Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return null;
+        }
+
+        String email = null;
+        String sub = null;
+
+        if (authentication.getPrincipal() instanceof org.springframework.security.oauth2.core.user.OAuth2User oauth2User) {
+            email = oauth2User.getAttribute("email");
+            sub = oauth2User.getAttribute("sub");
+        } else {
+            email = authentication.getName();
+        }
+
+        if (sub != null && !sub.isBlank()) {
+            Optional<User> bySub = findByGoogleSubjectId(sub);
+            if (bySub.isPresent()) {
+                return bySub.get();
+            }
+        }
+
+        if (email != null && !email.isBlank()) {
+            return findByEmail(email).orElse(null);
+        }
+
+        return null;
+    }
+
     public UserProfileResponse toProfileResponse(User user) {
         return new UserProfileResponse(
                 user.getId(),

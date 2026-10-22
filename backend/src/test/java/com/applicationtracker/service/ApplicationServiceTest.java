@@ -465,4 +465,181 @@ class ApplicationServiceTest {
         assertThat(result.get().getRole()).isEqualTo("Cloud Infrastructure Engineer");
         assertThat(result.get().getCurrentStatus()).isEqualTo(ApplicationStatus.INTERVIEW);
     }
+
+    @Test
+    @DisplayName("getApplications queries repository by filters and maps to Page<ApplicationResponse>")
+    void testGetApplications() {
+        UUID appId = UUID.randomUUID();
+        Application app = Application.builder()
+            .id(appId)
+            .user(testUser)
+            .company("Stripe")
+            .role("Software Engineer")
+            .currentStatus(ApplicationStatus.INTERVIEW)
+            .notes("Great conversation")
+            .sourceEmailId("email-1")
+            .firstSeenAt(Instant.now())
+            .lastUpdatedAt(Instant.now())
+            .build();
+
+        org.springframework.data.domain.Page<Application> page =
+            new org.springframework.data.domain.PageImpl<>(java.util.List.of(app));
+
+        when(applicationRepository.findByFilters(
+            eq(testUser.getId()),
+            eq(ApplicationStatus.INTERVIEW),
+            eq("stripe"),
+            any(org.springframework.data.domain.Pageable.class)
+        )).thenReturn(page);
+
+        org.springframework.data.domain.Page<com.applicationtracker.dto.ApplicationResponse> result =
+            applicationService.getApplications(
+                testUser,
+                ApplicationStatus.INTERVIEW,
+                "stripe",
+                org.springframework.data.domain.PageRequest.of(0, 10)
+            );
+
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).company()).isEqualTo("Stripe");
+        assertThat(result.getContent().get(0).notes()).isEqualTo("Great conversation");
+    }
+
+    @Test
+    @DisplayName("getApplication returns detail with status history")
+    void testGetApplicationSuccess() {
+        UUID appId = UUID.randomUUID();
+        Application app = Application.builder()
+            .id(appId)
+            .user(testUser)
+            .company("Google")
+            .role("SRE")
+            .currentStatus(ApplicationStatus.INTERVIEW)
+            .notes("Screen done")
+            .build();
+
+        StatusHistory h1 = StatusHistory.builder()
+            .id(UUID.randomUUID())
+            .application(app)
+            .status(ApplicationStatus.INTERVIEW)
+            .changedAt(Instant.now())
+            .build();
+
+        when(applicationRepository.findByIdAndUserId(appId, testUser.getId())).thenReturn(Optional.of(app));
+        when(statusHistoryRepository.findByApplicationIdOrderByChangedAtDesc(appId)).thenReturn(java.util.List.of(h1));
+
+        com.applicationtracker.dto.ApplicationDetailResponse detail = applicationService.getApplication(testUser, appId);
+
+        assertThat(detail.id()).isEqualTo(appId);
+        assertThat(detail.company()).isEqualTo("Google");
+        assertThat(detail.statusHistory()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("getApplication throws ResourceNotFoundException when not found")
+    void testGetApplicationNotFound() {
+        UUID nonExistent = UUID.randomUUID();
+        when(applicationRepository.findByIdAndUserId(nonExistent, testUser.getId())).thenReturn(Optional.empty());
+
+        org.junit.jupiter.api.Assertions.assertThrows(
+            com.applicationtracker.exception.ResourceNotFoundException.class,
+            () -> applicationService.getApplication(testUser, nonExistent)
+        );
+    }
+
+    @Test
+    @DisplayName("updateApplication updates notes and status with new history")
+    void testUpdateApplication() {
+        UUID appId = UUID.randomUUID();
+        Application app = Application.builder()
+            .id(appId)
+            .user(testUser)
+            .company("Figma")
+            .role("Designer")
+            .currentStatus(ApplicationStatus.APPLIED)
+            .build();
+
+        when(applicationRepository.findByIdAndUserId(appId, testUser.getId())).thenReturn(Optional.of(app));
+        when(applicationRepository.save(any(Application.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(statusHistoryRepository.findByApplicationIdOrderByChangedAtDesc(appId)).thenReturn(java.util.List.of());
+
+        com.applicationtracker.dto.UpdateApplicationRequest req =
+            new com.applicationtracker.dto.UpdateApplicationRequest(ApplicationStatus.INTERVIEW, "Updated notes");
+
+        com.applicationtracker.dto.ApplicationDetailResponse updated =
+            applicationService.updateApplication(testUser, appId, req);
+
+        assertThat(updated.currentStatus()).isEqualTo(ApplicationStatus.INTERVIEW);
+        assertThat(updated.notes()).isEqualTo("Updated notes");
+        verify(statusHistoryRepository).save(any(StatusHistory.class));
+    }
+
+    @Test
+    @DisplayName("updateApplication rejects UNKNOWN status")
+    void testUpdateApplicationRejectsUnknown() {
+        UUID appId = UUID.randomUUID();
+        Application app = Application.builder()
+            .id(appId)
+            .user(testUser)
+            .company("Figma")
+            .currentStatus(ApplicationStatus.APPLIED)
+            .build();
+
+        when(applicationRepository.findByIdAndUserId(appId, testUser.getId())).thenReturn(Optional.of(app));
+
+        com.applicationtracker.dto.UpdateApplicationRequest req =
+            new com.applicationtracker.dto.UpdateApplicationRequest(ApplicationStatus.UNKNOWN, "Note");
+
+        org.junit.jupiter.api.Assertions.assertThrows(
+            IllegalArgumentException.class,
+            () -> applicationService.updateApplication(testUser, appId, req)
+        );
+    }
+
+    @Test
+    @DisplayName("getStats computes correct counts, active count, response rate, and weekly breakdown")
+    void testGetStats() {
+        Instant now = Instant.now();
+        Instant weekAgo = now.minusSeconds(86400 * 7);
+
+        Application app1 = Application.builder().id(UUID.randomUUID()).user(testUser).currentStatus(ApplicationStatus.APPLIED).firstSeenAt(now).build();
+        Application app2 = Application.builder().id(UUID.randomUUID()).user(testUser).currentStatus(ApplicationStatus.INTERVIEW).firstSeenAt(now).build();
+        Application app3 = Application.builder().id(UUID.randomUUID()).user(testUser).currentStatus(ApplicationStatus.OFFER).firstSeenAt(weekAgo).build();
+        Application app4 = Application.builder().id(UUID.randomUUID()).user(testUser).currentStatus(ApplicationStatus.REJECTED).firstSeenAt(weekAgo).build();
+
+        when(applicationRepository.findByUserId(testUser.getId())).thenReturn(java.util.List.of(app1, app2, app3, app4));
+
+        com.applicationtracker.dto.ApplicationStatsResponse stats = applicationService.getStats(testUser);
+
+        assertThat(stats.totalApplications()).isEqualTo(4);
+        assertThat(stats.activeApplications()).isEqualTo(2); // APPLIED + INTERVIEW
+        assertThat(stats.countsByStatus().get(ApplicationStatus.APPLIED)).isEqualTo(1L);
+        assertThat(stats.countsByStatus().get(ApplicationStatus.INTERVIEW)).isEqualTo(1L);
+        assertThat(stats.countsByStatus().get(ApplicationStatus.OFFER)).isEqualTo(1L);
+        assertThat(stats.countsByStatus().get(ApplicationStatus.REJECTED)).isEqualTo(1L);
+        assertThat(stats.responseRate()).isEqualTo(75.0); // 3 out of 4 responded
+        assertThat(stats.applicationsPerWeek()).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("getPendingFollowups queries applications in APPLIED older than threshold")
+    void testGetPendingFollowups() {
+        Application app = Application.builder()
+            .id(UUID.randomUUID())
+            .user(testUser)
+            .company("Old Corp")
+            .role("Engineer")
+            .currentStatus(ApplicationStatus.APPLIED)
+            .lastUpdatedAt(Instant.now().minusSeconds(86400 * 10))
+            .build();
+
+        when(applicationRepository.findPendingFollowups(eq(testUser.getId()), any(Instant.class)))
+            .thenReturn(java.util.List.of(app));
+
+        java.util.List<com.applicationtracker.dto.ApplicationResponse> followups =
+            applicationService.getPendingFollowups(testUser, 7);
+
+        assertThat(followups).hasSize(1);
+        assertThat(followups.get(0).company()).isEqualTo("Old Corp");
+    }
 }
