@@ -57,6 +57,9 @@ public class Application {
     @Column(name = "source_email_id")
     private String sourceEmailId;
 
+    @Column(columnDefinition = "TEXT")
+    private String notes;
+
     @CreationTimestamp
     @Column(name = "first_seen_at", nullable = false, updatable = false)
     private Instant firstSeenAt;
