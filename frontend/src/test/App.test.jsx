@@ -64,6 +64,13 @@ describe('App Integration', () => {
     expect(screen.getByTestId('table-view')).toBeInTheDocument();
     expect(screen.queryByTestId('kanban-board')).not.toBeInTheDocument();
 
+    // Switch to Analytics view
+    const statsViewBtn = screen.getByTestId('view-stats-btn');
+    await userEvent.click(statsViewBtn);
+
+    expect(screen.getByTestId('stats-view')).toBeInTheDocument();
+    expect(screen.queryByTestId('kanban-board')).not.toBeInTheDocument();
+
     // Switch back to Kanban
     const kanbanViewBtn = screen.getByTestId('view-kanban-btn');
     await userEvent.click(kanbanViewBtn);
