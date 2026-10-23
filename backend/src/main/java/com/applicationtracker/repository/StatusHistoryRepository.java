@@ -16,4 +16,7 @@ public interface StatusHistoryRepository extends JpaRepository<StatusHistory, UU
     Optional<StatusHistory> findByApplicationIdAndSourceEmailId(UUID applicationId, String sourceEmailId);
 
     boolean existsByApplicationIdAndSourceEmailId(UUID applicationId, String sourceEmailId);
+
+    @org.springframework.data.jpa.repository.Query("SELECT sh FROM StatusHistory sh WHERE sh.application.user.id = :userId ORDER BY sh.changedAt ASC")
+    List<StatusHistory> findByUserIdOrderByChangedAtAsc(@org.springframework.data.repository.query.Param("userId") UUID userId);
 }

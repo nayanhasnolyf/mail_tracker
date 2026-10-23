@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Service managing job applications and status progression from classified emails.
@@ -256,6 +257,20 @@ public class ApplicationService {
         long activeCount = 0;
         long respondedCount = 0;
 
+        java.util.List<StatusHistory> userHistories = statusHistoryRepository.findByUserIdOrderByChangedAtAsc(user.getId());
+        java.util.Map<UUID, Instant> firstResponseByAppId = new java.util.HashMap<>();
+        if (userHistories != null) {
+            for (StatusHistory sh : userHistories) {
+                ApplicationStatus st = sh.getStatus();
+                if (st != ApplicationStatus.APPLIED && st != ApplicationStatus.UNKNOWN && sh.getApplication() != null) {
+                    firstResponseByAppId.putIfAbsent(sh.getApplication().getId(), sh.getChangedAt());
+                }
+            }
+        }
+
+        double totalDaysToFirstResponse = 0.0;
+        int appsWithResponseDuration = 0;
+
         java.util.Map<String, WeeklyAccumulator> weeklyMap = new java.util.TreeMap<>();
         java.time.temporal.WeekFields weekFields = java.time.temporal.WeekFields.ISO;
 
@@ -274,6 +289,21 @@ public class ApplicationService {
                 respondedCount++;
             }
 
+            Instant responseTime = firstResponseByAppId.get(app.getId());
+            if (responseTime == null) {
+                if (status == ApplicationStatus.ASSESSMENT || status == ApplicationStatus.INTERVIEW
+                    || status == ApplicationStatus.OFFER || status == ApplicationStatus.REJECTED) {
+                    responseTime = app.getLastUpdatedAt();
+                }
+            }
+
+            if (responseTime != null && app.getFirstSeenAt() != null) {
+                long millis = java.time.Duration.between(app.getFirstSeenAt(), responseTime).toMillis();
+                double days = Math.max(0.0, millis / (1000.0 * 60.0 * 60.0 * 24.0));
+                totalDaysToFirstResponse += days;
+                appsWithResponseDuration++;
+            }
+
             Instant seenAt = app.getFirstSeenAt() != null ? app.getFirstSeenAt() : Instant.now();
             java.time.LocalDate localDate = seenAt.atZone(java.time.ZoneOffset.UTC).toLocalDate();
             java.time.LocalDate monday = localDate.with(weekFields.dayOfWeek(), 1);
@@ -285,6 +315,9 @@ public class ApplicationService {
         }
 
         double responseRate = total == 0 ? 0.0 : Math.round((respondedCount * 1000.0) / total) / 10.0;
+        Double averageDaysToFirstResponse = appsWithResponseDuration == 0
+            ? 0.0
+            : Math.round((totalDaysToFirstResponse / appsWithResponseDuration) * 10.0) / 10.0;
 
         java.util.List<com.applicationtracker.dto.WeeklyApplicationStatDto> weeklyStats = weeklyMap.values().stream()
             .map(acc -> new com.applicationtracker.dto.WeeklyApplicationStatDto(acc.weekKey, acc.startDate, acc.count))
@@ -294,6 +327,7 @@ public class ApplicationService {
             total,
             activeCount,
             responseRate,
+            averageDaysToFirstResponse,
             countsByStatus,
             weeklyStats
         );
