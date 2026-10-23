@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bell, Clock, Building2, ChevronRight, X, AlertCircle } from 'lucide-react';
+import { Bell, Clock, Building2, ChevronRight, X } from 'lucide-react';
 
 export default function FollowupsList({
   followups = [],

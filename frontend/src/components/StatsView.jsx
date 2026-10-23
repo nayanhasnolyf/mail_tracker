@@ -3,8 +3,6 @@ import {
   ResponsiveContainer,
   AreaChart,
   Area,
-  BarChart,
-  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -30,27 +28,20 @@ import {
 import { STATUS_CONFIG, APPLICATION_STATUSES } from '../types/constants';
 
 export default function StatsView({ stats }) {
-  if (!stats) {
-    return (
-      <div className="py-20 text-center text-slate-400">
-        <p>Loading application statistics...</p>
-      </div>
-    );
-  }
-
-  const total = stats.totalApplications ?? 0;
-  const active = stats.activeApplications ?? 0;
-  const responseRate = stats.responseRate ?? 0;
-  const avgDays = stats.averageDaysToFirstResponse ?? 0;
-  const counts = stats.countsByStatus || {};
+  const total = stats?.totalApplications ?? 0;
+  const active = stats?.activeApplications ?? 0;
+  const responseRate = stats?.responseRate ?? 0;
+  const avgDays = stats?.averageDaysToFirstResponse ?? 0;
+  const counts = stats?.countsByStatus;
 
   // Funnel data: progression through stages
   const funnelData = useMemo(() => {
-    const applied = counts.APPLIED || 0;
-    const assessment = counts.ASSESSMENT || 0;
-    const interview = counts.INTERVIEW || 0;
-    const offer = counts.OFFER || 0;
-    const rejected = counts.REJECTED || 0;
+    const c = counts || {};
+    const applied = c.APPLIED || 0;
+    const assessment = c.ASSESSMENT || 0;
+    const interview = c.INTERVIEW || 0;
+    const offer = c.OFFER || 0;
+    const rejected = c.REJECTED || 0;
 
     // Funnel stages: total reaching each milestone or current count
     const stages = [
@@ -91,16 +82,17 @@ export default function StatsView({ stats }) {
 
   // Status distribution for Donut Chart
   const statusPieData = useMemo(() => {
+    const c = counts || {};
     return APPLICATION_STATUSES.map((status) => ({
       name: STATUS_CONFIG[status].label,
-      value: counts[status] || 0,
+      value: c[status] || 0,
       color: STATUS_CONFIG[status].hexColor,
     })).filter((d) => d.value > 0);
   }, [counts]);
 
   // Weekly applications line/area data
   const weeklyData = useMemo(() => {
-    const rawList = stats.applicationsPerWeek || [];
+    const rawList = stats?.applicationsPerWeek || [];
     if (rawList.length === 0) {
       // Fallback display if no history yet
       return [
@@ -112,7 +104,15 @@ export default function StatsView({ stats }) {
       count: item.count || 0,
       startDate: item.startDate || '',
     }));
-  }, [stats.applicationsPerWeek, total]);
+  }, [stats?.applicationsPerWeek, total]);
+
+  if (!stats) {
+    return (
+      <div className="py-20 text-center text-slate-400">
+        <p>Loading application statistics...</p>
+      </div>
+    );
+  }
 
   // KPI cards
   const kpis = [
