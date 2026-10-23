@@ -20,9 +20,22 @@ public record ApplicationStatsResponse(
     @Schema(description = "Percentage of applications that received any company response (ASSESSMENT, INTERVIEW, OFFER, REJECTED)", example = "35.7")
     double responseRate,
 
+    @Schema(description = "Average number of days from application creation to first company response", example = "5.2")
+    Double averageDaysToFirstResponse,
+
     @Schema(description = "Counts per status")
     Map<ApplicationStatus, Long> countsByStatus,
 
     @Schema(description = "Applications created per week")
     List<WeeklyApplicationStatDto> applicationsPerWeek
-) {}
+) {
+    public ApplicationStatsResponse(
+        long totalApplications,
+        long activeApplications,
+        double responseRate,
+        Map<ApplicationStatus, Long> countsByStatus,
+        List<WeeklyApplicationStatDto> applicationsPerWeek
+    ) {
+        this(totalApplications, activeApplications, responseRate, 0.0, countsByStatus, applicationsPerWeek);
+    }
+}
