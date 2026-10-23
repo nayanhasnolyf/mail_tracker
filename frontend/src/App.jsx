@@ -13,7 +13,7 @@ import ApplicationDrawer from './components/ApplicationDrawer';
 import FollowupsList from './components/FollowupsList';
 import StatsView from './components/StatsView';
 import NotificationToast from './components/NotificationToast';
-import { RefreshCw, AlertCircle } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 
 export default function App() {
   const [user, setUser] = useState(null);
