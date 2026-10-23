@@ -1,5 +1,7 @@
 # Application Tracker
 
+[![CI](https://github.com/nayanhasnolyf/mail_tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/nayanhasnolyf/mail_tracker/actions/workflows/ci.yml)
+
 Application Tracker is an intelligent job-application tracking monorepo that reads your Gmail, automatically classifies job confirmation and status update emails, and visualizes your active job applications on a modern dashboard.
 
 ---
@@ -7,8 +9,8 @@ Application Tracker is an intelligent job-application tracking monorepo that rea
 ## Tech Stack
 
 - **Backend**: Java 21, Spring Boot 3 (`3.3.4`), Spring Web, Spring Data JPA, Spring Security (OAuth2 client), PostgreSQL, Flyway migrations, JUnit 5, Mockito, Testcontainers.
-- **Frontend**: React 19, Vite, Tailwind CSS, Lucide Icons.
-- **Infrastructure**: Docker Compose (PostgreSQL 16).
+- **Frontend**: React 19, Vite, Tailwind CSS, Lucide Icons, Recharts.
+- **Infrastructure & CI**: Docker, Docker Compose (PostgreSQL 16, Spring Boot API, Nginx SPA), GitHub Actions CI.
 
 ---
 
@@ -61,58 +63,56 @@ Copy `.env.example` to `.env`:
 cp .env.example .env
 ```
 
-### 3. Start PostgreSQL Database
+### 3. Option A: Full-Stack Docker Compose (Recommended)
+Build and run the entire stack (PostgreSQL database, Spring Boot backend API, and Nginx frontend dashboard) with a single command:
 ```bash
-docker-compose up -d
+docker-compose up --build
 ```
-The database will be accessible on `localhost:5432` with database name `application_tracker`.
+- **Frontend Dashboard**: [http://localhost:3000](http://localhost:3000)
+- **Backend API**: [http://localhost:8080/api/health](http://localhost:8080/api/health)
+- **PostgreSQL**: `localhost:5432`
 
-### 4. Run the Backend
+---
+
+### 4. Option B: Local Development
+
+#### Start PostgreSQL Database Only
+```bash
+docker-compose up -d postgres
+```
+
+#### Run the Backend
 ```bash
 cd backend
-./mvnw spring-boot:run
+mvn spring-boot:run
 ```
-*(On Windows PowerShell, use `.\mvnw.cmd spring-boot:run` or `mvn spring-boot:run`)*
+*(Or use `./mvnw spring-boot:run`)*
 
-Verify that the health endpoint is responding:
-```bash
-curl http://localhost:8080/api/health
-```
-Response:
-```json
-{
-  "status": "UP",
-  "message": "Application Tracker API is running",
-  "timestamp": "2026-10-20T14:40:00Z"
-}
-```
-
-### 5. Run the Frontend
-In a separate terminal:
+#### Run the Frontend
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-Open [http://localhost:5173](http://localhost:5173) in your browser to view the dashboard and live backend health status.
+Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 ---
 
-## Running Tests
+## Running Tests & CI
 
-### Backend Tests
+### Backend Tests (JUnit 5, Mockito & Testcontainers)
 ```bash
 cd backend
-./mvnw clean test
+mvn clean test
 ```
-The test suite includes:
-- `@WebMvcTest` verifying `GET /api/health` status, payload, and headers.
-- `@SpringBootTest` verifying Spring Boot application context initialization with H2 in-memory profile.
+Runs the full unit, repository (Testcontainers PostgreSQL), and controller MockMvc test suite.
 
-### Frontend Build & Lint
+### Frontend Lint, Tests & Production Build
 ```bash
 cd frontend
-npm run build
+npm run lint    # Runs oxlint
+npm test        # Runs Vitest & React Testing Library component tests
+npm run build   # Validates production Vite compilation
 ```
 
 ---
