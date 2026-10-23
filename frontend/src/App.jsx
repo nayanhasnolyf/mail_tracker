@@ -1,206 +1,371 @@
-import { useState, useEffect } from 'react';
-import { Mail, CheckCircle2, AlertCircle, RefreshCw, Layers, ShieldCheck, Database, Inbox, Sparkles, ArrowRight } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import {
+  api,
+  DEMO_USER,
+  INITIAL_DEMO_APPLICATIONS,
+} from './api/client';
+import LoginView from './components/LoginView';
+import Header from './components/Header';
+import StatsBar from './components/StatsBar';
+import KanbanBoard from './components/KanbanBoard';
+import TableView from './components/TableView';
+import ApplicationDrawer from './components/ApplicationDrawer';
+import FollowupsList from './components/FollowupsList';
+import NotificationToast from './components/NotificationToast';
+import { RefreshCw, AlertCircle } from 'lucide-react';
 
 export default function App() {
-  const [healthStatus, setHealthStatus] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [user, setUser] = useState(null);
+  const [isDemo, setIsDemo] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [authError, setAuthError] = useState(null);
 
-  const checkHealth = async () => {
-    setLoading(true);
-    setError(null);
+  // Dashboard state
+  const [viewMode, setViewMode] = useState('kanban'); // 'kanban' | 'table'
+  const [applications, setApplications] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [followups, setFollowups] = useState([]);
+  const [followupDays, setFollowupDays] = useState(7);
+  const [showFollowups, setShowFollowups] = useState(false);
+  const [selectedApplication, setSelectedApplication] = useState(null);
+  const [toast, setToast] = useState(null);
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => {
+      setToast(null);
+    }, 4000);
+  };
+
+  // Compute stats locally if backend stats endpoint is empty/in demo
+  const computeStats = useCallback((apps) => {
+    const total = apps.length;
+    const active = apps.filter((a) =>
+      ['APPLIED', 'ASSESSMENT', 'INTERVIEW'].includes(a.currentStatus)
+    ).length;
+    const movedBeyond = apps.filter((a) =>
+      ['ASSESSMENT', 'INTERVIEW', 'OFFER', 'REJECTED'].includes(a.currentStatus)
+    ).length;
+    const responseRate = total > 0 ? (movedBeyond / total) * 100 : 0;
+
+    const countsByStatus = {};
+    apps.forEach((a) => {
+      countsByStatus[a.currentStatus] = (countsByStatus[a.currentStatus] || 0) + 1;
+    });
+
+    return {
+      totalApplications: total,
+      activeApplications: active,
+      responseRate,
+      countsByStatus,
+      applicationsPerWeek: {},
+    };
+  }, []);
+
+  // Compute followups locally for demo mode
+  const computeDemoFollowups = useCallback((apps, days) => {
+    const cutoff = Date.now() - days * 86400000;
+    return apps.filter((a) => {
+      if (a.currentStatus !== 'APPLIED') return false;
+      const lastTime = new Date(a.lastUpdatedAt || a.firstSeenAt).getTime();
+      return lastTime <= cutoff;
+    });
+  }, []);
+
+  // Load dashboard data
+  const loadDashboardData = useCallback(async (isDemoMode = false, days = followupDays) => {
+    if (isDemoMode) {
+      setApplications((currentApps) => {
+        const apps = currentApps.length > 0 ? currentApps : INITIAL_DEMO_APPLICATIONS;
+        setStats(computeStats(apps));
+        setFollowups(computeDemoFollowups(apps, days));
+        return apps;
+      });
+      return;
+    }
+
     try {
-      const response = await fetch('/api/health');
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      setRefreshing(true);
+      const [appsResponse, statsResponse, followupsResponse] = await Promise.allSettled([
+        api.getApplications({ size: 100 }),
+        api.getStats(),
+        api.getFollowups(days),
+      ]);
+
+      if (appsResponse.status === 'fulfilled') {
+        const items = appsResponse.value.items || appsResponse.value || [];
+        setApplications(items);
+
+        if (statsResponse.status === 'fulfilled') {
+          setStats(statsResponse.value);
+        } else {
+          setStats(computeStats(items));
+        }
       }
-      const data = await response.json();
-      setHealthStatus(data);
+
+      if (followupsResponse.status === 'fulfilled') {
+        setFollowups(followupsResponse.value || []);
+      }
     } catch (err) {
-      setError(err.message || 'Unable to connect to backend service');
+      showToast(err.message || 'Error updating dashboard data', 'error');
     } finally {
-      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [computeDemoFollowups, computeStats, followupDays]);
+
+  // Initial authentication check
+  useEffect(() => {
+    const initAuth = async () => {
+      setLoading(true);
+      try {
+        const currentUser = await api.getCurrentUser();
+        setUser(currentUser);
+        setIsDemo(false);
+        await loadDashboardData(false);
+      } catch (err) {
+        // Not authenticated with session
+        setUser(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initAuth();
+  }, [loadDashboardData]);
+
+  // Start demo mode
+  const handleStartDemo = () => {
+    setUser(DEMO_USER);
+    setIsDemo(true);
+    setApplications(INITIAL_DEMO_APPLICATIONS);
+    setStats(computeStats(INITIAL_DEMO_APPLICATIONS));
+    setFollowups(computeDemoFollowups(INITIAL_DEMO_APPLICATIONS, followupDays));
+    showToast('Loaded interactive demo dashboard', 'info');
+  };
+
+  // Sign out or exit demo
+  const handleSignOut = () => {
+    setUser(null);
+    setIsDemo(false);
+    setApplications([]);
+    setSelectedApplication(null);
+    setShowFollowups(false);
+    if (!isDemo) {
+      window.location.href = '/logout';
     }
   };
 
-  useEffect(() => {
-    checkHealth();
-  }, []);
+  // Change followups threshold days
+  const handleFollowupDaysChange = async (days) => {
+    setFollowupDays(days);
+    if (isDemo) {
+      setFollowups(computeDemoFollowups(applications, days));
+    } else {
+      try {
+        const result = await api.getFollowups(days);
+        setFollowups(result || []);
+      } catch (err) {
+        showToast('Failed to fetch follow-ups', 'error');
+      }
+    }
+  };
+
+  // Drag and drop or manual status update with optimistic update
+  const handleStatusChange = async (applicationId, newStatus) => {
+    const originalApp = applications.find((a) => a.id === applicationId);
+    if (!originalApp || originalApp.currentStatus === newStatus) return;
+
+    const previousStatus = originalApp.currentStatus;
+
+    // Optimistically update
+    const updatedApps = applications.map((a) => {
+      if (a.id === applicationId) {
+        const newHistoryItem = {
+          id: `h-local-${Date.now()}`,
+          status: newStatus,
+          changedAt: new Date().toISOString(),
+          sourceEmailId: null,
+        };
+        return {
+          ...a,
+          currentStatus: newStatus,
+          lastUpdatedAt: new Date().toISOString(),
+          statusHistory: [newHistoryItem, ...(a.statusHistory || [])],
+        };
+      }
+      return a;
+    });
+
+    setApplications(updatedApps);
+    setStats(computeStats(updatedApps));
+    setFollowups(computeDemoFollowups(updatedApps, followupDays));
+
+    if (selectedApplication && selectedApplication.id === applicationId) {
+      setSelectedApplication({
+        ...selectedApplication,
+        currentStatus: newStatus,
+        lastUpdatedAt: new Date().toISOString(),
+        statusHistory: [
+          {
+            id: `h-local-${Date.now()}`,
+            status: newStatus,
+            changedAt: new Date().toISOString(),
+            sourceEmailId: null,
+          },
+          ...(selectedApplication.statusHistory || []),
+        ],
+      });
+    }
+
+    if (isDemo) {
+      showToast(`Moved ${originalApp.company} to ${newStatus}`);
+      return;
+    }
+
+    try {
+      const saved = await api.updateApplication(applicationId, { status: newStatus });
+      showToast(`Moved ${originalApp.company} to ${newStatus}`);
+      if (saved) {
+        setApplications((prev) => prev.map((a) => (a.id === applicationId ? { ...a, ...saved } : a)));
+        if (selectedApplication?.id === applicationId) {
+          setSelectedApplication((prev) => ({ ...prev, ...saved }));
+        }
+      }
+    } catch (err) {
+      // Revert optimistic update
+      setApplications((prev) =>
+        prev.map((a) =>
+          a.id === applicationId
+            ? { ...a, currentStatus: previousStatus, lastUpdatedAt: originalApp.lastUpdatedAt }
+            : a
+        )
+      );
+      setStats(computeStats(applications));
+      showToast(`Failed to update status: ${err.message}`, 'error');
+    }
+  };
+
+  // Update notes
+  const handleSaveNotes = async (applicationId, notes) => {
+    const targetApp = applications.find((a) => a.id === applicationId);
+    if (!targetApp) return;
+
+    if (isDemo) {
+      setApplications((prev) =>
+        prev.map((a) => (a.id === applicationId ? { ...a, notes } : a))
+      );
+      if (selectedApplication?.id === applicationId) {
+        setSelectedApplication((prev) => ({ ...prev, notes }));
+      }
+      showToast('Notes saved successfully');
+      return;
+    }
+
+    try {
+      const saved = await api.updateApplication(applicationId, { notes });
+      setApplications((prev) =>
+        prev.map((a) => (a.id === applicationId ? { ...a, notes, ...saved } : a))
+      );
+      if (selectedApplication?.id === applicationId) {
+        setSelectedApplication((prev) => ({ ...prev, notes, ...saved }));
+      }
+      showToast('Notes saved successfully');
+    } catch (err) {
+      showToast(`Failed to save notes: ${err.message}`, 'error');
+      throw err;
+    }
+  };
+
+  // Select application to open drawer
+  const handleSelectApplication = async (app) => {
+    setSelectedApplication(app);
+
+    // Fetch full application detail with history if not demo
+    if (!isDemo && app?.id) {
+      try {
+        const fullDetail = await api.getApplicationById(app.id);
+        setSelectedApplication(fullDetail);
+      } catch (err) {
+        // Fall back to current data in state
+      }
+    }
+  };
+
+  // Initial loading spinner
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400">
+        <RefreshCw className="w-8 h-8 text-sky-400 animate-spin mb-4" />
+        <p className="text-sm font-medium">Loading Application Tracker...</p>
+      </div>
+    );
+  }
+
+  // Login view if not logged in
+  if (!user) {
+    return <LoginView onStartDemo={handleStartDemo} error={authError} />;
+  }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-sky-500/30 selection:text-sky-200">
-      {/* Top Navbar */}
-      <header className="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-600 to-cyan-400 flex items-center justify-center shadow-lg shadow-sky-500/20">
-              <Mail className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <span className="font-bold text-lg tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
-                Application Tracker
-              </span>
-              <span className="hidden sm:inline-block ml-2 text-xs uppercase px-2 py-0.5 rounded-full bg-sky-950 text-sky-400 border border-sky-800/50 font-medium">
-                Monorepo
-              </span>
-            </div>
-          </div>
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-sky-500/30 selection:text-sky-200">
+      {/* Header */}
+      <Header
+        user={user}
+        isDemo={isDemo}
+        viewMode={viewMode}
+        onViewChange={setViewMode}
+        followupCount={followups.length}
+        showFollowups={showFollowups}
+        onToggleFollowups={() => setShowFollowups(!showFollowups)}
+        onRefresh={() => loadDashboardData(isDemo)}
+        refreshing={refreshing}
+        onSignOut={handleSignOut}
+      />
 
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/90 border border-slate-800 text-xs">
-              <span className="text-slate-400">Backend API:</span>
-              {loading ? (
-                <span className="flex items-center gap-1.5 text-yellow-400">
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  Connecting...
-                </span>
-              ) : error ? (
-                <span className="flex items-center gap-1.5 text-rose-400 font-medium">
-                  <AlertCircle className="w-3.5 h-3.5" />
-                  Offline
-                </span>
-              ) : healthStatus ? (
-                <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  {healthStatus.status}
-                </span>
-              ) : (
-                <span className="text-slate-500">Idle</span>
-              )}
-            </div>
+      {/* Main Container */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6">
+        {/* Stats Overview */}
+        <StatsBar stats={stats} />
 
-            <button
-              id="refresh-health-btn"
-              onClick={checkHealth}
-              disabled={loading}
-              className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 hover:text-white transition-all disabled:opacity-50"
-              title="Ping GET /api/health"
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
-        </div>
-      </header>
+        {/* Needs Follow-up Panel */}
+        {showFollowups && (
+          <FollowupsList
+            followups={followups}
+            daysThreshold={followupDays}
+            onChangeDays={handleFollowupDaysChange}
+            onSelectApplication={handleSelectApplication}
+            onClose={() => setShowFollowups(false)}
+            loading={refreshing}
+          />
+        )}
 
-      {/* Hero Section */}
-      <main className="flex-1 max-w-7xl mx-auto px-6 py-12 flex flex-col justify-center">
-        <div className="text-center max-w-3xl mx-auto mb-16">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-sky-500/10 border border-sky-500/20 text-sky-300 text-xs font-medium mb-6">
-            <Sparkles className="w-3.5 h-3.5 text-sky-400" />
-            AI & Rule-Driven Job Application Assistant
-          </div>
-          <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight text-white mb-6 leading-tight">
-            Automate your job search directly from your{' '}
-            <span className="bg-gradient-to-r from-sky-400 via-cyan-300 to-indigo-400 bg-clip-text text-transparent">
-              Gmail Inbox
-            </span>
-          </h1>
-          <p className="text-lg text-slate-400 leading-relaxed max-w-2xl mx-auto">
-            Reads job confirmation and update emails, automatically classifies application statuses, and visualizes your job hunt in an intuitive dashboard.
-          </p>
-        </div>
-
-        {/* Live Service Status Card */}
-        <div className="max-w-2xl mx-auto w-full mb-16">
-          <div className="relative group">
-            <div className="absolute -inset-0.5 bg-gradient-to-r from-sky-500 to-cyan-500 rounded-2xl blur opacity-30 group-hover:opacity-50 transition duration-500"></div>
-            <div className="relative rounded-2xl bg-slate-900/90 border border-slate-800 p-6 shadow-2xl backdrop-blur-xl">
-              <div className="flex items-center justify-between mb-4 pb-4 border-b border-slate-800">
-                <div className="flex items-center gap-3">
-                  <div className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse"></div>
-                  <h2 className="text-sm font-semibold tracking-wider uppercase text-slate-300">
-                    Health Endpoint Live Check (`GET /api/health`)
-                  </h2>
-                </div>
-                <span className="text-xs font-mono text-slate-500">Spring Boot 3 + Java 21</span>
-              </div>
-
-              {loading ? (
-                <div className="flex items-center justify-center py-6 gap-3 text-slate-400 text-sm">
-                  <RefreshCw className="w-5 h-5 animate-spin text-sky-400" />
-                  Pinging backend health endpoint...
-                </div>
-              ) : error ? (
-                <div className="rounded-xl bg-rose-500/10 border border-rose-500/20 p-4 text-rose-300 text-sm flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-semibold mb-1">Backend service not reached via proxy</p>
-                    <p className="text-xs text-rose-400/80 font-mono">{error}</p>
-                    <p className="text-xs text-slate-400 mt-2">
-                      Start the Spring Boot backend (`cd backend && ./mvnw spring-boot:run`) on port 8080.
-                    </p>
-                  </div>
-                </div>
-              ) : healthStatus ? (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
-                    <span className="text-xs text-slate-400">Response Status:</span>
-                    <span className="text-xs font-mono font-semibold text-emerald-400 px-2 py-0.5 rounded bg-emerald-950/50 border border-emerald-800/50">
-                      {healthStatus.status}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
-                    <span className="text-xs text-slate-400">Message:</span>
-                    <span className="text-xs text-slate-200 font-medium">{healthStatus.message}</span>
-                  </div>
-                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
-                    <span className="text-xs text-slate-400">Timestamp:</span>
-                    <span className="text-xs font-mono text-slate-400">{healthStatus.timestamp}</span>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-
-        {/* Architecture Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-          <div className="p-6 rounded-2xl bg-slate-900/40 border border-slate-800 hover:border-slate-700 transition">
-            <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400 mb-4">
-              <Inbox className="w-5 h-5" />
-            </div>
-            <h3 className="text-base font-semibold text-white mb-2">Gmail Integration</h3>
-            <p className="text-sm text-slate-400 leading-relaxed">
-              Connects with secure OAuth2 client credentials using minimum readonly scope (<code className="text-sky-300 text-xs">gmail.readonly</code>) to fetch job communications safely.
-            </p>
-          </div>
-
-          <div className="p-6 rounded-2xl bg-slate-900/40 border border-slate-800 hover:border-slate-700 transition">
-            <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 mb-4">
-              <Layers className="w-5 h-5" />
-            </div>
-            <h3 className="text-base font-semibold text-white mb-2">Spring Boot 3 + Java 21</h3>
-            <p className="text-sm text-slate-400 leading-relaxed">
-              Robust layered backend with Spring Web, Data JPA, PostgreSQL persistence, Flyway migrations, and comprehensive JUnit 5/Testcontainers tests.
-            </p>
-          </div>
-
-          <div className="p-6 rounded-2xl bg-slate-900/40 border border-slate-800 hover:border-slate-700 transition">
-            <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 mb-4">
-              <Database className="w-5 h-5" />
-            </div>
-            <h3 className="text-base font-semibold text-white mb-2">PostgreSQL & Docker</h3>
-            <p className="text-sm text-slate-400 leading-relaxed">
-              Local containerized database with Docker Compose, automated health checks, persistent volumes, and versioned migrations.
-            </p>
-          </div>
-        </div>
-
-        {/* Tech Stack Pills */}
-        <div className="flex flex-wrap items-center justify-center gap-2 pt-4 border-t border-slate-800/60 text-xs text-slate-400">
-          <span className="font-semibold text-slate-300">Stack:</span>
-          {['Java 21', 'Spring Boot 3', 'Spring Security OAuth2', 'PostgreSQL 16', 'Flyway', 'Testcontainers', 'React 19', 'Vite', 'Tailwind CSS'].map((tech) => (
-            <span key={tech} className="px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-300">
-              {tech}
-            </span>
-          ))}
-        </div>
+        {/* View content: Kanban vs Table */}
+        {viewMode === 'kanban' ? (
+          <KanbanBoard
+            applications={applications}
+            onStatusChange={handleStatusChange}
+            onSelectApplication={handleSelectApplication}
+          />
+        ) : (
+          <TableView
+            applications={applications}
+            onSelectApplication={handleSelectApplication}
+          />
+        )}
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-800/60 py-6 text-center text-xs text-slate-500">
-        Application Tracker Monorepo &bull; Built with Spring Boot 3 &amp; React Vite
-      </footer>
+      {/* Application Detail Drawer */}
+      <ApplicationDrawer
+        application={selectedApplication}
+        isOpen={Boolean(selectedApplication)}
+        onClose={() => setSelectedApplication(null)}
+        onUpdateStatus={handleStatusChange}
+        onSaveNotes={handleSaveNotes}
+      />
+
+      {/* Notifications Toast */}
+      <NotificationToast toast={toast} onDismiss={() => setToast(null)} />
     </div>
   );
 }
