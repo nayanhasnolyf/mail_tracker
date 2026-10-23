@@ -19,6 +19,7 @@ export const STATUS_CONFIG = {
     columnHeaderBg: 'bg-blue-500/10',
     columnAccent: 'from-blue-500/20 to-transparent',
     dotColor: 'bg-blue-400',
+    hexColor: '#3b82f6',
   },
   ASSESSMENT: {
     label: 'Assessment',
@@ -30,6 +31,7 @@ export const STATUS_CONFIG = {
     columnHeaderBg: 'bg-purple-500/10',
     columnAccent: 'from-purple-500/20 to-transparent',
     dotColor: 'bg-purple-400',
+    hexColor: '#a855f7',
   },
   INTERVIEW: {
     label: 'Interview',
@@ -41,6 +43,7 @@ export const STATUS_CONFIG = {
     columnHeaderBg: 'bg-amber-500/10',
     columnAccent: 'from-amber-500/20 to-transparent',
     dotColor: 'bg-amber-400',
+    hexColor: '#f59e0b',
   },
   OFFER: {
     label: 'Offer',
@@ -52,6 +55,7 @@ export const STATUS_CONFIG = {
     columnHeaderBg: 'bg-emerald-500/10',
     columnAccent: 'from-emerald-500/20 to-transparent',
     dotColor: 'bg-emerald-400',
+    hexColor: '#10b981',
   },
   REJECTED: {
     label: 'Rejected',
@@ -63,6 +67,7 @@ export const STATUS_CONFIG = {
     columnHeaderBg: 'bg-rose-500/10',
     columnAccent: 'from-rose-500/20 to-transparent',
     dotColor: 'bg-rose-400',
+    hexColor: '#f43f5e',
   },
 };
 

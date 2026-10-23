@@ -2,6 +2,7 @@ import {
   Mail,
   Kanban,
   Table as TableIcon,
+  BarChart3,
   Bell,
   LogOut,
   RefreshCw,
@@ -72,6 +73,19 @@ export default function Header({
           >
             <TableIcon className="w-3.5 h-3.5" />
             <span>Table</span>
+          </button>
+          <button
+            id="view-stats-btn"
+            data-testid="view-stats-btn"
+            onClick={() => onViewChange('stats')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              viewMode === 'stats'
+                ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span>Analytics</span>
           </button>
         </div>
 
