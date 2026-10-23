@@ -618,7 +618,40 @@ class ApplicationServiceTest {
         assertThat(stats.countsByStatus().get(ApplicationStatus.OFFER)).isEqualTo(1L);
         assertThat(stats.countsByStatus().get(ApplicationStatus.REJECTED)).isEqualTo(1L);
         assertThat(stats.responseRate()).isEqualTo(75.0); // 3 out of 4 responded
+        assertThat(stats.averageDaysToFirstResponse()).isNotNull();
         assertThat(stats.applicationsPerWeek()).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("getStats computes averageDaysToFirstResponse correctly using status history")
+    void testGetStatsWithStatusHistory() {
+        Instant appliedTime = Instant.now().minusSeconds(86400 * 10);
+        Instant responseTime = appliedTime.plusSeconds(86400 * 4); // 4 days later
+
+        UUID appId = UUID.randomUUID();
+        Application app = Application.builder()
+            .id(appId)
+            .user(testUser)
+            .currentStatus(ApplicationStatus.INTERVIEW)
+            .firstSeenAt(appliedTime)
+            .lastUpdatedAt(responseTime)
+            .build();
+
+        com.applicationtracker.domain.StatusHistory history = com.applicationtracker.domain.StatusHistory.builder()
+            .id(UUID.randomUUID())
+            .application(app)
+            .status(ApplicationStatus.INTERVIEW)
+            .changedAt(responseTime)
+            .build();
+
+        when(applicationRepository.findByUserId(testUser.getId())).thenReturn(java.util.List.of(app));
+        when(statusHistoryRepository.findByUserIdOrderByChangedAtAsc(testUser.getId()))
+            .thenReturn(java.util.List.of(history));
+
+        com.applicationtracker.dto.ApplicationStatsResponse stats = applicationService.getStats(testUser);
+
+        assertThat(stats.totalApplications()).isEqualTo(1);
+        assertThat(stats.averageDaysToFirstResponse()).isEqualTo(4.0);
     }
 
     @Test

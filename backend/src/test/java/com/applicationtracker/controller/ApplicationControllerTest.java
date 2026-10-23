@@ -324,6 +324,7 @@ class ApplicationControllerTest {
             15,
             10,
             66.7,
+            5.4,
             counts,
             weekly
         );
@@ -339,6 +340,7 @@ class ApplicationControllerTest {
             .andExpect(jsonPath("$.totalApplications").value(15))
             .andExpect(jsonPath("$.activeApplications").value(10))
             .andExpect(jsonPath("$.responseRate").value(66.7))
+            .andExpect(jsonPath("$.averageDaysToFirstResponse").value(5.4))
             .andExpect(jsonPath("$.countsByStatus.APPLIED").value(5))
             .andExpect(jsonPath("$.countsByStatus.OFFER").value(1))
             .andExpect(jsonPath("$.applicationsPerWeek.length()").value(2))
